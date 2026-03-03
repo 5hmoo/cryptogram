@@ -1,4 +1,5 @@
 # Simple Cryptogram Generator
+### [Open the Live Tool](https://5hmoo.github.io/cryptogram/)
 
 A high-contrast, privacy-focused utility for creating printable cryptogram puzzles.
 Generates a simple cryptogram from your input, which can then be printed, saved as an image, or played.
