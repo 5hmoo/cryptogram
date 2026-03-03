@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Cryptogram Tool</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; padding: 40px; color: #000; max-width: 1100px; margin: auto; }
+        .no-print { background: #f4f4f4; padding: 25px; border: 2px solid #333; border-radius: 12px; margin-bottom: 30px; }
+        .instructions { background: #e8f5e9; border: 2px solid #1b5e20; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        .instructions h3 { margin-top: 0; color: #1b5e20; }
+        button { padding: 12px 24px; font-size: 1rem; font-weight: 700; cursor: pointer; color: #fff; border: none; border-radius: 8px; margin: 8px 4px; box-shadow: 0 4px 0px rgba(0,0,0,0.2); transition: transform 0.1s; }
+        button:active { transform: translateY(2px); box-shadow: none; }
+        .btn-generate { background-color: #1b5e20; }
+        .btn-edit     { background-color: #1a237e; }
+        .btn-reset    { background-color: #bf360c; }
+        .btn-check    { background-color: #0d47a1; }
+        .btn-error    { background-color: #880e4f; padding: 6px 12px; font-size: 0.9rem; margin-left: 10px; vertical-align: middle; }
+        .btn-print    { background-color: #004d40; }
+        #puzzle-container { display: flex; flex-wrap: wrap; gap: 15px; margin-top: 40px; min-height: 120px; }
+        .word { display: flex; gap: 8px; margin-right: 30px; margin-bottom: 40px; }
+        .letter-unit { display: flex; flex-direction: column; align-items: center; width: 34px; }
+        .user-input { width: 32px; height: 38px; text-align: center; font-size: 1.5rem; text-transform: uppercase; border: 2px solid #333; border-bottom: 4px solid #000; outline: none; background: #fff; }
+        .user-input:focus { background: #fff9c4; border-color: #0d47a1; }
+        .user-input.is-error { background: #ffd7d7; border-color: #880e4f; color: #880e4f; }
+        .encoded-char { font-weight: bold; margin-top: 10px; font-size: 1.3rem; }
+        .symbol-mode .encoded-char, .symbol-mode .legend-symbol { font-family: 'Wingdings', 'Zapf Dingbats', sans-serif; font-size: 1.8rem; }
+        #cipher-legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 12px; margin-top: 25px; border: 2px solid #eee; padding: 20px; }
+        .legend-item { text-align: center; border: 1px solid #ddd; padding: 8px; background: #fff; }
+        .legend-symbol { display: block; font-weight: bold; margin-bottom: 4px; }
+        .legend-real { font-size: 0.9rem; font-weight: bold; color: #1a237e; border-top: 1px solid #eee; padding-top: 4px; display: block; }
+        @media print { .no-print, #play-controls, .instructions { display: none !important; } #answer-key { display: block !important; page-break-before: always; border-top: 2px dashed #000; padding-top: 40px; } }
+        textarea { width: 100%; padding: 15px; font-size: 1.1rem; border: 2px solid #333; border-radius: 8px; box-sizing: border-box; }
+    </style>
+</head>
+<body>
+<div class="no-print" id="editor-controls">
+    <h1>Simple Cryptogram Tool</h1>
+    <textarea id="raw-text" rows="3" placeholder="Enter your secret phrase..."></textarea>
+    <div style="margin: 20px 0;">
+        <label style="cursor:pointer; font-size: 1.1rem;"><input type="checkbox" id="font-toggle" style="transform: scale(1.3); margin-right: 10px;"> <strong>Enable Wingdings Mode</strong></label>
+    </div>
+    <button class="btn-generate" onclick="generatePuzzle()">Generate & Hide Answer</button>
+</div>
+<div class="no-print" id="play-controls" style="display:none;">
+    <div class="instructions">
+        <h3>How to Play</h3>
+        <ul>
+            <li>Each symbol stands for a letter. Click a box and type a letter to fill it everywhere.</li>
+            <li>Use <strong>Backspace</strong> to clear a letter.</li> 
+            <li>Click <strong>Check My Work</strong> for feedback.</li>
+        </ul>
+    </div>
+    <button class="btn-edit" onclick="showEditor()">New Puzzle / Edit</button>
+    <button class="btn-reset" onclick="resetGuesses()">Reset My Guesses</button>
+    <button class="btn-check" onclick="checkWork()">Check My Work</button>
+    <button class="btn-edit" onclick="toggleAnswer()" id="reveal-btn">Show Answer</button>
+    <button class="btn-print" onclick="window.print()">Print Puzzle & Key</button>
+    <button class="btn-print" onclick="saveAsImage()">Save as Image</button>
+    <div id="status-area" style="margin-top: 20px; height: 40px; display: flex; align-items: center;">
+        <span id="status-message" style="font-weight: 800; font-size: 1.2rem;"></span>
+        <button id="error-btn" class="btn-error" onclick="showErrors()" style="display:none;">Show Errors</button>
+    </div>
+</div>
+<div id="puzzle-container"></div>
+<div id="answer-key" style="display:none;">
+    <h2>Official Solution</h2>
+    <p style="font-size: 1.2rem;"><strong>Original Text:</strong> <span id="key-text"></span></p>
+    <hr>
+    <h3>Decoder Legend</h3>
+    <div id="cipher-legend"></div>
+</div>
+<script>
+    let cipherMap = {}, userGuesses = {}, currentSentence = "", showingErrors = false;
+    function generatePuzzle() {
+        const text = document.getElementById('raw-text').value.toUpperCase().trim();
+        if (!text) return;
+        currentSentence = text;
+        const alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+        let shuffled = [...alpha].sort(() => Math.random() - 0.5);
+        for (let i = 0; i < alpha.length; i++) { if (alpha[i] === shuffled[i]) { let next = (i + 1) % alpha.length; [shuffled[i], shuffled[next]] = [shuffled[next], shuffled[i]]; } }
+        cipherMap = {}; userGuesses = {};
+        alpha.forEach((letter, i) => { cipherMap[letter] = shuffled[i]; userGuesses[shuffled[i]] = ""; });
+        document.getElementById('editor-controls').style.display = 'none';
+        document.getElementById('play-controls').style.display = 'block';
+        clearStatus(); render();
+    }
+    function clearStatus() { document.getElementById('status-message').innerHTML = ""; document.getElementById('error-btn').style.display = 'none'; }
+    function checkWork() {
+        let total = 0, correct = 0, filled = 0;
+        const status = document.getElementById('status-message'), errorBtn = document.getElementById('error-btn');
+        currentSentence.split("").forEach(char => { if (/[A-Z]/.test(char)) { total++; const enc = cipherMap[char]; if (userGuesses[enc] !== "") { filled++; if (userGuesses[enc] === char) correct++; } } });
+        if (correct === total && total > 0) { status.innerHTML = "✨ CONGRATULATIONS! ✨"; status.style.color = "#1b5e20"; errorBtn.style.display = 'none'; }
+        else if (filled > 0) { const hasErrors = correct < filled; status.innerHTML = hasErrors ? "Bummer. Some letters are incorrect." : "No errors so far!"; status.style.color = hasErrors ? "#880e4f" : "#0d47a1"; errorBtn.style.display = hasErrors ? 'inline-block' : 'none'; }
+    }
+    function showErrors() { showingErrors = true; render(); setTimeout(() => { showingErrors = false; render(); }, 2500); }
+    function saveAsImage() {
+        const container = document.getElementById('puzzle-container');
+        container.style.padding = "40px"; container.style.backgroundColor = "#fff";
+        html2canvas(container, { scale: 2, backgroundColor: "#fff" }).then(canvas => {
+            const link = document.createElement('a'); link.download = 'cryptogram.png'; link.href = canvas.toDataURL(); link.click();
+            container.style.padding = "0";
+        });
+    }
+    function render() {
+        const container = document.getElementById('puzzle-container'), isSymbols = document.getElementById('font-toggle').checked;
+        container.className = isSymbols ? "symbol-mode" : ""; container.innerHTML = "";
+        let incorrectChars = [];
+        if (showingErrors) { for (let r in cipherMap) { let e = cipherMap[r]; if (userGuesses[e] !== "" && userGuesses[e] !== r) incorrectChars.push(e); } }
+        currentSentence.split(/\s+/).forEach(word => {
+            const wordDiv = document.createElement('div'); wordDiv.className = "word";
+            word.split("").forEach(char => {
+                const unit = document.createElement('div'); unit.className = "letter-unit";
+                if (/[A-Z]/.test(char)) {
+                    const enc = cipherMap[char]; const input = document.createElement('input');
+                    input.type = "text"; input.className = "user-input" + (incorrectChars.includes(enc) ? " is-error" : "");
+                    input.value = userGuesses[enc];
+                    input.oninput = (e) => { userGuesses[enc] = e.target.value.toUpperCase().slice(-1); clearStatus(); render(); };
+                    input.onkeydown = (e) => { if(e.key==="Backspace"||e.key==="Delete"){ userGuesses[enc]=""; clearStatus(); render(); }};
+                    input.onclick = (e) => e.target.select();
+                    unit.innerHTML = `<span class="encoded-char">${enc}</span>`; unit.prepend(input);
+                } else { unit.innerHTML = `<span style="margin-top:32px; font-weight:bold; font-size:1.3rem;">${char}</span>`; }
+                wordDiv.appendChild(unit);
+            });
+            container.appendChild(wordDiv);
+        });
+        const legend = document.getElementById('cipher-legend'); legend.className = isSymbols ? "symbol-mode" : ""; legend.innerHTML = "";
+        const used = [...new Set(currentSentence.replace(/[^A-Z]/g, "").split(""))].sort();
+        used.forEach(l => { legend.innerHTML += `<div class="legend-item"><span class="legend-symbol">${cipherMap[l]}</span><span class="legend-real">${l}</span></div>`; });
+        document.getElementById('key-text').innerText = currentSentence;
+    }
+    function showEditor() { document.getElementById('editor-controls').style.display = 'block'; document.getElementById('play-controls').style.display = 'none'; document.getElementById('puzzle-container').innerHTML = ""; }
+    function resetGuesses() { if (confirm("Clear all progress?")) { for (let k in userGuesses) userGuesses[k] = ""; clearStatus(); render(); } }
+    function toggleAnswer() { const k = document.getElementById('answer-key'); const b = document.getElementById('reveal-btn'); const h = k.style.display === 'none'; k.style.display = h ? 'block' : 'none'; b.innerText = h ? "Hide Answer" : "Show Answer"; }
+</script>
+</body>
+</html>
